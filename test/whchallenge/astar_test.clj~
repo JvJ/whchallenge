@@ -1,0 +1,4 @@
+(ns whchallenge.astar-test
+  (:require [whchallenge.astar :as sut]
+            [clojure.test :as t]))
+

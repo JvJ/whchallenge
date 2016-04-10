@@ -1,0 +1,109 @@
+(ns whchallenge.text-maze
+
+  "A type of map that can be used by the
+  A* algorithm.
+
+  They can be loaded from text, given that all
+  rows have the same length.  Dots represent
+  empty spaces and '#' represents obstacles."
+  
+  (:require [swiss.arrows :refer :all]
+            [clojure.string :as st
+             :refer [split split-lines]]))
+
+(defn bounds
+  "Take a grid or a map and return its bounds."
+  [g]
+  (-> g meta :bounds))
+
+(defn in-bounds?
+  "Is the first argument within the bounds of the second?
+  To be in bounds, the target must have zero or positive indices
+  that are *less* than the bounds."
+  [[bi bj] [ti tj]]
+  (and (< ti bi) (< tj bj)
+       (>= ti 0) (>= tj 0)))
+
+(defn cell-comp
+  "Compare any two values that could be cells.
+  Ordered such that numbers are always less than
+  non-numeric values."
+  [v1 v2]
+  (cond
+    (and (number? v1) (number? v2))
+    (< v1 v2)
+
+    (and (number? v1) (not (number? v2)))
+    true
+
+    (and (not (number? v1)) (number? v2))
+    false
+
+    :else
+    (compare v1 v2)))
+
+(let [root2 (Math/sqrt 2)]
+  (defn h-dist
+    "The heuristic distance estimation
+  function."
+    [m [r1 c1] [r2 c2]]
+    (let [dr (Math/abs (- r2 r1))
+          dc (Math/abs (- c2 c1 ))
+          d-min (Math/min dr dc)
+          d-max (Math/max dr dc)]
+      (+ (* root2 d-min)
+         (- d-max d-min)))))
+
+(defn neighbors
+  "Return the adjacent cells, ignoring leaked
+  diagonals."
+  [m [i j :as cell]]    
+  (-> (for [di [-1 0 1]
+            dj [-1 0 1]
+            :let [[ii jj] [(+ i di) (+ j dj)]]
+            :when (and (not (= di dj 0))               ; Leave out [i j]
+                       (in-bounds? (bounds m) [ii jj]) ; Has to be in bounds
+                       (= :space (m [ii jj]))          ; Has to be blank
+
+                       ;; Filter-out leaked diagonals
+                       (or (= i ii) (= j jj)         
+                           (and (not= :wall (m [(- ii di) jj]))
+                                (not= :wall (m [ii (- jj dj)])))))]
+        [ii jj])
+      set))
+
+(defn read-grid
+  "Read a grid from a string.  Contains bounds in its metadata."
+  [s]
+  (let [grid (->> s split-lines vec (mapv vec))
+        first-len (count (first grid))]
+    (if (every? #(= (count %) first-len) grid)
+      (with-meta grid {:bounds [(count grid) first-len]
+                       :compare-nodes cell-comp
+                       :neighbors neighbors
+                       :default-g :space
+                       :heuristic h-dist})
+      (throw (Exception. "Invalid grid: all rows must be the same length.")))))
+
+(defn grid->map
+  "Convert a grid to a priority map.
+  Cells can have several values: :wall, :space, or a number.
+  Numbers represent spaces with associated costs in pathfinding.
+  
+  This map map automatically re-sorts if any of its values are
+  updated.
+
+  Preserves bounds in metadata."
+  [g]
+  (->>
+   (for [[row i] (map vector g (range))
+         [cell j] (map vector row (range))]
+
+     [[i j] (case cell
+              \. :space
+              \# :wall
+              (throw (Exception.
+                      (str "Invalid character in map: " cell))))])
+   (into (with-meta
+           {}
+           (meta g)))))
